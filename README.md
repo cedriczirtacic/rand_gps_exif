@@ -39,6 +39,7 @@ Scanning dependencies of target jpeg
  * GPSLongitudeRef
 
 ```bash
+$ ./rand_gps_exif dickbutt.jpg && exiftool -GPS* dickbutt.jpg
 GPS Version ID                  : 2.3.0.0
 GPS Latitude Ref                : South
 GPS Longitude Ref               : East
