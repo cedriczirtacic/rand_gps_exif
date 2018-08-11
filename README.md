@@ -37,6 +37,8 @@ Scanning dependencies of target jpeg
  * GPSLatitudeRef
  * GPSLongitude
  * GPSLongitudeRef
+ * GPSTimeStamp
+ * GPSDateStamp
 
 ```bash
 $ ./rand_gps_exif dickbutt.jpg && exiftool -GPS* dickbutt.jpg
@@ -54,6 +56,18 @@ GPS Latitude                    : 4 deg 39' 28.70" N
 GPS Longitude                   : 62 deg 33' 29.80" W
 GPS Position                    : 4 deg 39' 28.70" N, 62 deg 33' 29.80" W
 ```
+Time and date:
+```bash
+$ ./rand_gps_exif dickbutt.jpg && exiftool -GPS* dickbutt.jpg
+GPS Time Stamp                  : 05:11:28
+GPS Date Stamp                  : 1977:07:02
+GPS Date/Time                   : 1977:07:02 05:11:28Z
+$ ./rand_gps_exif dickbutt.jpg && exiftool -GPS* dickbutt.jpg
+GPS Version ID                  : 2.3.0.0
+GPS Time Stamp                  : 15:29:41
+GPS Date Stamp                  : 1979:12:18
+GPS Date/Time                   : 1979:12:18 15:29:41Z
+```
 And can delete those fields if needed.
 ```bash
 $ ./rand_gps_exif -d dickbutt.jpg && exiftool -GPS* dickbutt.jpg
@@ -64,8 +78,8 @@ More info: [GPS tag information](https://sno.phy.queensu.ca/~phil/exiftool/TagNa
 
 ## TODO:
 - [ ] Include more GPS tags:
-  * GPSDateStamp
-  * GPSTimeStamp
+  * GPSDateStamp ✅
+  * GPSTimeStamp ✅
   * GPSAltitude
   * GPSAltitudeRef
 - [ ] Work recursively with directories
