@@ -61,3 +61,12 @@ GPS Version ID                  : 2.3.0.0
 ```
 
 More info: [GPS tag information](https://sno.phy.queensu.ca/~phil/exiftool/TagNames/GPS.html)
+
+## TODO:
+- [ ] Include more GPS tags:
+  * GPSDateStamp
+  * GPSTimeStamp
+  * GPSAltitude
+  * GPSAltitudeRef
+- [ ] Work recursively with directories
+- [ ] **Moar testin'!**
