@@ -32,6 +32,7 @@ typedef struct coordinates {
 bool verbose = false;
 bool jpeg_create_new = false;
 bool delete_gps_data = false;
+bool identify_gps_data = false;
 
 /* Latitude references */
 #define LATITUDE_REF_N "N"
@@ -218,6 +219,7 @@ void usage(const char *p)
             "\t-v\tVerbose (default: false)\n" \
             "\t-n\tCreate new JPEG file (default: false)\n" \
             "\t-d\tDelete GPS data\n" \
+            "\t-i\tIdentify GPS data\n" \
             "\n",
             p);
     exit(1);
@@ -229,7 +231,7 @@ int main(int argc, char *argv[])
         usage(argv[0]);
 
     int ch = 0;
-    while ((ch = getopt(argc, argv, "vhnd")) != -1) {
+    while ((ch = getopt(argc, argv, "vhndi")) != -1) {
         switch (ch) {
             case 'v':
                 verbose = true;
@@ -240,6 +242,9 @@ int main(int argc, char *argv[])
             case 'd':
                 delete_gps_data = true;
                 break;
+            case 'i':
+                identify_gps_data = true;
+                break;
             case 'h':
             default:
                 usage(argv[0]);
@@ -248,6 +253,19 @@ int main(int argc, char *argv[])
     argc-=optind;
     argv+=optind;
 
+    if (jpeg_create_new &&
+            ( delete_gps_data || identify_gps_data ))
+        printf("Ignoring -n flag.\n");
+
+    if (delete_gps_data && identify_gps_data) {
+        printf("You can't use -d and -i at the same time.\n");
+        usage(argv[0]);
+    }
+    
+    if (argc == 0)
+        usage(argv[0]);
+
+    /* start */
     srand(time(NULL));
     for (int i = 0; i < argc; i++) {
         struct image_gps_exif gps;
@@ -265,31 +283,38 @@ int main(int argc, char *argv[])
         if (verbose) _perror(INFO, "Getting GPS content: ");
         /* check existence of latitude tag */
         gps.latitude = get_gps_content(exif_data, EXIF_TAG_GPS_LATITUDE);
-        if (gps.latitude == NULL)
-            _perror(WARN, "Unable to get latitude data.");
+        if (gps.latitude == NULL && verbose)
+            _perror(INFO, "No latitude data.");
 
         /* check existence of latitude ref tag */
         gps.latitude_ref = get_gps_content(exif_data,
                 EXIF_TAG_GPS_LATITUDE_REF);
-        if (gps.latitude_ref == NULL)
-            _perror(WARN, "Unable to get latitude reference data.");
+        if (gps.latitude_ref == NULL && verbose)
+            _perror(INFO, "No latitude reference data.");
         
         /* check existence of longitude tag */
         gps.longitude = get_gps_content(exif_data, EXIF_TAG_GPS_LONGITUDE);
-        if (gps.longitude == NULL)
-            _perror(WARN, "Unable to get longitude data.");
+        if (gps.longitude == NULL && verbose)
+            _perror(INFO, "No longitude data.");
         
         /* check existence of longitude ref tag */
         gps.longitude_ref = get_gps_content(exif_data,
                 EXIF_TAG_GPS_LONGITUDE_REF);
-        if (gps.longitude_ref == NULL)
-            _perror(WARN, "Unable to get longitude reference data.");
+        if (gps.longitude_ref == NULL && verbose)
+            _perror(INFO, "No longitude reference data.");
 
-        if (!delete_gps_data) {
+        if (delete_gps_data) {
+            delete_gps_entries(&gps);
+        } else if (identify_gps_data) {
+            /* this will just check if theres any GPS data. */
+            if (gps.latitude != NULL || gps.latitude_ref != NULL ||
+                    gps.longitude != NULL || gps.longitude_ref != NULL)
+                goto goaway;
+            else
+                _perror(INFO, "No GPS data present.");
+        } else {
             randomize(&gps);
             randomize_ref(&gps);
-        } else {
-            delete_gps_entries(&gps);
         }
 
         if (!write_image(argv[i], exif_data))
@@ -298,6 +323,7 @@ int main(int argc, char *argv[])
 #ifdef DEBUG
         exif_data_dump(exif_data);
 #endif
+goaway:
         /* to the next one or bail out */
         exif_data_unref(exif_data);
     }
