@@ -17,16 +17,18 @@ struct image_gps_exif {
     ExifEntry *longitude;
     ExifEntry *latitude_ref;
     ExifEntry *longitude_ref;
+    ExifEntry *timestamp;
+    ExifEntry *datestamp;
+    int8_t n_entries;
 };
 
-typedef struct coordinates {
-    uint32_t h; //º
-    uint32_t s1;
-    uint32_t m; //'
-    uint32_t s2;
-    uint32_t s; //"
-    uint32_t d;
-} coords;
+typedef struct rationale64u {
+    uint32_t data[6];
+} r64_t;
+
+typedef r64_t coords;
+typedef r64_t times;
+
 
 /* flags */
 bool verbose = false;
@@ -99,36 +101,67 @@ void dump_hex(const char *name, unsigned char *data, size_t s)
     printf("\n");
 }
 
+/* randomize timestamp and datetime */
+void randomize_datetime(struct image_gps_exif *g)
+{
+    time_t now = rand() % time(NULL);
+    struct tm *tm_data;
+
+    tm_data = gmtime(&now);
+
+    /* GPSTimeStamp */
+    if (g->timestamp != NULL) {
+        times t;
+        t.data[0] = __bswap_32(tm_data->tm_hour);
+        t.data[2] = __bswap_32(tm_data->tm_min);
+        t.data[4] = __bswap_32(tm_data->tm_sec);
+
+        t.data[1] = __bswap_32(0x01);
+        t.data[3] = t.data[5] = t.data[1];
+        memcpy(g->timestamp->data, &t, sizeof(t));
+    }
+    
+    /* GPSDateStamp */
+    if (g->datestamp != NULL) {
+        char d[11];
+#define GPS_DATESTAMP_FMT "%Y:%m:%d"
+        strftime(d, 11, GPS_DATESTAMP_FMT, tm_data);
+        memcpy(g->datestamp->data, &d, strlen(d));
+    }
+}
+
 /* randomize latitude/longitude values */
-void randomize(struct image_gps_exif *g) {
+void randomize(struct image_gps_exif *g)
+{
     uint8_t la_max = 90;
     uint8_t lo_max = 180;
     coords la, lo;
 
     /* latitude */
-    la.h = __bswap_32(rand()%la_max);
-    la.s1 = __bswap_32(1);
-    la.m = __bswap_32(rand()%60);
-    la.s2 = __bswap_32(1);
-    la.s = __bswap_32(rand()%600);
-    la.d = __bswap_32(10); // 01.f
+    la.data[0] = __bswap_32(rand()%la_max);
+    la.data[1] = __bswap_32(1);
+    la.data[2] = __bswap_32(rand()%60);
+    la.data[3] = __bswap_32(1);
+    la.data[4] = __bswap_32(rand()%600);
+    la.data[5] = __bswap_32(10); // 01.f
     
     /* longitude */
-    lo.h = __bswap_32(rand()%lo_max);
-    lo.s1 = __bswap_32(1);
-    lo.m = __bswap_32(rand()%60);
-    lo.s2 = __bswap_32(1);
-    lo.s = __bswap_32(rand()%600);
-    lo.d = __bswap_32(10); // 01.f
+    lo.data[0] = __bswap_32(rand()%lo_max);
+    lo.data[1] = __bswap_32(1);
+    lo.data[2] = __bswap_32(rand()%60);
+    lo.data[3] = __bswap_32(1);
+    lo.data[4] = __bswap_32(rand()%600);
+    lo.data[5] = __bswap_32(10); // 01.f
 
-    if (g->latitude->data != NULL)
+    if (g->latitude != NULL)
         memcpy(g->latitude->data, &la, sizeof(coords));
-    if (g->longitude->data != NULL)
+    if (g->longitude != NULL)
         memcpy(g->longitude->data, &lo, sizeof(coords));
 }
 
 /* randomize latitude/longitude references */
-void randomize_ref(struct image_gps_exif *g) {
+void randomize_ref(struct image_gps_exif *g)
+{
     uint8_t la_ref = (uint8_t)rand()%2;
     uint8_t lo_ref = (la_ref^1);
 
@@ -201,6 +234,10 @@ void delete_gps_entries(struct image_gps_exif *g)
         delete_entry(g->longitude);
     if (g->longitude_ref != NULL)
         delete_entry(g->longitude_ref);
+    if (g->timestamp != NULL)
+        delete_entry(g->timestamp);
+    if (g->datestamp != NULL)
+        delete_entry(g->datestamp);
 }
 
 ExifEntry *get_gps_content(ExifData *d, ExifTag t) {
@@ -249,11 +286,7 @@ int main(int argc, char *argv[])
             default:
                 usage(argv[0]);
         }
-    }
-    argc-=optind;
-    argv+=optind;
-
-    if (jpeg_create_new &&
+    } argc-=optind; argv+=optind; if (jpeg_create_new &&
             ( delete_gps_data || identify_gps_data ))
         printf("Ignoring -n flag.\n");
 
@@ -269,6 +302,7 @@ int main(int argc, char *argv[])
     srand(time(NULL));
     for (int i = 0; i < argc; i++) {
         struct image_gps_exif gps;
+        gps.n_entries = 0;
 
         if (argc > 1 || verbose)
             printf("=== %s ===\n", argv[i]);
@@ -285,36 +319,60 @@ int main(int argc, char *argv[])
         gps.latitude = get_gps_content(exif_data, EXIF_TAG_GPS_LATITUDE);
         if (gps.latitude == NULL && verbose)
             _perror(INFO, "No latitude data.");
+        else
+            gps.n_entries++;
 
         /* check existence of latitude ref tag */
         gps.latitude_ref = get_gps_content(exif_data,
                 EXIF_TAG_GPS_LATITUDE_REF);
         if (gps.latitude_ref == NULL && verbose)
             _perror(INFO, "No latitude reference data.");
+        else
+            gps.n_entries++;
         
         /* check existence of longitude tag */
         gps.longitude = get_gps_content(exif_data, EXIF_TAG_GPS_LONGITUDE);
         if (gps.longitude == NULL && verbose)
             _perror(INFO, "No longitude data.");
+        else
+            gps.n_entries++;
         
         /* check existence of longitude ref tag */
         gps.longitude_ref = get_gps_content(exif_data,
                 EXIF_TAG_GPS_LONGITUDE_REF);
         if (gps.longitude_ref == NULL && verbose)
             _perror(INFO, "No longitude reference data.");
+        else
+            gps.n_entries++;
+        
+        /* check existence of timestamp tag */
+        gps.timestamp = get_gps_content(exif_data,
+                EXIF_TAG_GPS_TIME_STAMP);
+        if (gps.timestamp == NULL && verbose)
+            _perror(INFO, "No timestamp data.");
+        else
+            gps.n_entries++;
+        
+        /* check existence of datestamp tag */
+        gps.datestamp = get_gps_content(exif_data,
+                EXIF_TAG_GPS_DATE_STAMP);
+        if (gps.datestamp == NULL && verbose)
+            _perror(INFO, "No datestamp data.");
+        else
+            gps.n_entries++;
 
         if (delete_gps_data) {
             delete_gps_entries(&gps);
         } else if (identify_gps_data) {
             /* this will just check if theres any GPS data. */
-            if (gps.latitude != NULL || gps.latitude_ref != NULL ||
-                    gps.longitude != NULL || gps.longitude_ref != NULL)
+            if (gps.n_entries > 0)
                 goto goaway;
             else
                 _perror(INFO, "No GPS data present.");
         } else {
             randomize(&gps);
             randomize_ref(&gps);
+            randomize_datetime(&gps);
         }
 
         if (!write_image(argv[i], exif_data))
