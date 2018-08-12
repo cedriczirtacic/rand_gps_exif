@@ -7,8 +7,14 @@
 #include <fcntl.h>
 #include <getopt.h>
 
+/* file/dir processing */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+
 /* libexif headers */
 #include <libexif/exif-data.h>
+/* libjpeg */
 #include "libjpeg/jpeg-data.h"
 
 /* struct used on each image */
@@ -32,6 +38,7 @@ typedef r64_t times;
 
 /* flags */
 bool verbose = false;
+bool recursive = false;
 bool jpeg_create_new = false;
 bool delete_gps_data = false;
 bool identify_gps_data = false;
@@ -249,14 +256,138 @@ ExifEntry *get_gps_content(ExifData *d, ExifTag t) {
     return (e);
 }
 
+void process_file(char *path)
+{
+    struct image_gps_exif gps;
+    gps.n_entries = 0;
+
+    if (verbose)
+        printf("=== %s ===\n", path);
+
+    ExifData *exif_data;
+    if (!(exif_data = exif_data_new_from_file(path))) {
+        if (verbose)
+            _perror(INFO, "Couldn't load exif data from '%s'. "\
+                    "No IFD GPS data or not even an image?", path);
+        return;
+    }
+
+    if (verbose) _perror(INFO, "Getting GPS content: ");
+    /* check existence of latitude tag */
+    gps.latitude = get_gps_content(exif_data, EXIF_TAG_GPS_LATITUDE);
+    if (gps.latitude == NULL && verbose)
+        _perror(INFO, "No latitude data.");
+    else
+        gps.n_entries++;
+
+    /* check existence of latitude ref tag */
+    gps.latitude_ref = get_gps_content(exif_data,
+            EXIF_TAG_GPS_LATITUDE_REF);
+    if (gps.latitude_ref == NULL && verbose)
+        _perror(INFO, "No latitude reference data.");
+    else
+        gps.n_entries++;
+    
+    /* check existence of longitude tag */
+    gps.longitude = get_gps_content(exif_data, EXIF_TAG_GPS_LONGITUDE);
+    if (gps.longitude == NULL && verbose)
+        _perror(INFO, "No longitude data.");
+    else
+        gps.n_entries++;
+    
+    /* check existence of longitude ref tag */
+    gps.longitude_ref = get_gps_content(exif_data,
+            EXIF_TAG_GPS_LONGITUDE_REF);
+    if (gps.longitude_ref == NULL && verbose)
+        _perror(INFO, "No longitude reference data.");
+    else
+        gps.n_entries++;
+    
+    /* check existence of timestamp tag */
+    gps.timestamp = get_gps_content(exif_data,
+            EXIF_TAG_GPS_TIME_STAMP);
+    if (gps.timestamp == NULL && verbose)
+        _perror(INFO, "No timestamp data.");
+    else
+        gps.n_entries++;
+    
+    /* check existence of datestamp tag */
+    gps.datestamp = get_gps_content(exif_data,
+            EXIF_TAG_GPS_DATE_STAMP);
+    if (gps.datestamp == NULL && verbose)
+        _perror(INFO, "No datestamp data.");
+    else
+        gps.n_entries++;
+
+    if (delete_gps_data) {
+        delete_gps_entries(&gps);
+    } else if (identify_gps_data) {
+        /* this will just check if theres any GPS data. */
+        if (gps.n_entries > 0)
+            goto goaway;
+        else
+            _perror(INFO, "No GPS data present.");
+    } else {
+        randomize(&gps);
+        randomize_ref(&gps);
+        randomize_datetime(&gps);
+    }
+
+    if (!write_image(path, exif_data))
+            _perror(ERROR, "Couldn't write new image file");
+
+#ifdef DEBUG
+    exif_data_dump(exif_data);
+#endif
+goaway:
+    /* to the next one or bail out */
+    exif_data_unref(exif_data);
+}
+
+void process_dir(char *path)
+{
+    DIR *dir;
+    struct dirent *dirlist;
+    
+    if ((dir = opendir(path)) == NULL) {
+        _perror(ERROR, "Can't open directory '%s'", path);
+        return;
+    }
+
+    while ((dirlist = readdir(dir)) != NULL) {
+        if ((strcmp(dirlist->d_name, ".") == 0) ||
+                (strcmp(dirlist->d_name, "..") == 0))
+            continue;
+
+        char next_path[1024];
+        snprintf((char *)&next_path, sizeof(next_path), "%s/%s",
+                path, dirlist->d_name);
+
+        struct stat st;
+        if ((stat(next_path, &st)) == -1) {
+            _perror (ERROR, "stat(2) returned -1.");
+            continue;
+        }
+
+        if ((st.st_mode & S_IFMT) == S_IFDIR) {
+            process_dir(next_path);
+        } else {
+            process_file(next_path);
+        }
+    }
+
+    closedir(dir);
+}
+
 void usage(const char *p)
 {
     (void)fprintf(stderr,
-            "usage: %s [-vh] [-n] [-d] [file ...]\n" \
+            "usage: %s [-vhR] [-n] [-d] [-i] [file|dir ...]\n" \
             "\t-v\tVerbose (default: false)\n" \
             "\t-n\tCreate new JPEG file (default: false)\n" \
             "\t-d\tDelete GPS data\n" \
             "\t-i\tIdentify GPS data\n" \
+            "\t-R\tRecursive if dir specified (default: false)\n" \
             "\n",
             p);
     exit(1);
@@ -268,7 +399,7 @@ int main(int argc, char *argv[])
         usage(argv[0]);
 
     int ch = 0;
-    while ((ch = getopt(argc, argv, "vhndi")) != -1) {
+    while ((ch = getopt(argc, argv, "vhndiR")) != -1) {
         switch (ch) {
             case 'v':
                 verbose = true;
@@ -282,11 +413,19 @@ int main(int argc, char *argv[])
             case 'i':
                 identify_gps_data = true;
                 break;
+            case 'R':
+                recursive = true;
+                break;
             case 'h':
             default:
                 usage(argv[0]);
         }
-    } argc-=optind; argv+=optind; if (jpeg_create_new &&
+    }
+    
+    argc-=optind;
+    argv+=optind; 
+    
+    if (jpeg_create_new &&
             ( delete_gps_data || identify_gps_data ))
         printf("Ignoring -n flag.\n");
 
@@ -300,90 +439,26 @@ int main(int argc, char *argv[])
 
     /* start */
     srand(time(NULL));
+    
     for (int i = 0; i < argc; i++) {
-        struct image_gps_exif gps;
-        gps.n_entries = 0;
-
-        if (argc > 1 || verbose)
-            printf("=== %s ===\n", argv[i]);
-
-        ExifData *exif_data;
-        if (!(exif_data = exif_data_new_from_file(argv[i]))) {
-            _perror(ERROR, "Couldn't load exif data from '%s'. "\
-                    "No IFD GPS data or not even an image?", argv[i]);
+        struct stat st;
+        if ((stat(argv[i], &st)) == -1) {
+            _perror (ERROR, "stat(2) returned -1.");
             continue;
         }
 
-        if (verbose) _perror(INFO, "Getting GPS content: ");
-        /* check existence of latitude tag */
-        gps.latitude = get_gps_content(exif_data, EXIF_TAG_GPS_LATITUDE);
-        if (gps.latitude == NULL && verbose)
-            _perror(INFO, "No latitude data.");
-        else
-            gps.n_entries++;
-
-        /* check existence of latitude ref tag */
-        gps.latitude_ref = get_gps_content(exif_data,
-                EXIF_TAG_GPS_LATITUDE_REF);
-        if (gps.latitude_ref == NULL && verbose)
-            _perror(INFO, "No latitude reference data.");
-        else
-            gps.n_entries++;
-        
-        /* check existence of longitude tag */
-        gps.longitude = get_gps_content(exif_data, EXIF_TAG_GPS_LONGITUDE);
-        if (gps.longitude == NULL && verbose)
-            _perror(INFO, "No longitude data.");
-        else
-            gps.n_entries++;
-        
-        /* check existence of longitude ref tag */
-        gps.longitude_ref = get_gps_content(exif_data,
-                EXIF_TAG_GPS_LONGITUDE_REF);
-        if (gps.longitude_ref == NULL && verbose)
-            _perror(INFO, "No longitude reference data.");
-        else
-            gps.n_entries++;
-        
-        /* check existence of timestamp tag */
-        gps.timestamp = get_gps_content(exif_data,
-                EXIF_TAG_GPS_TIME_STAMP);
-        if (gps.timestamp == NULL && verbose)
-            _perror(INFO, "No timestamp data.");
-        else
-            gps.n_entries++;
-        
-        /* check existence of datestamp tag */
-        gps.datestamp = get_gps_content(exif_data,
-                EXIF_TAG_GPS_DATE_STAMP);
-        if (gps.datestamp == NULL && verbose)
-            _perror(INFO, "No datestamp data.");
-        else
-            gps.n_entries++;
-
-        if (delete_gps_data) {
-            delete_gps_entries(&gps);
-        } else if (identify_gps_data) {
-            /* this will just check if theres any GPS data. */
-            if (gps.n_entries > 0)
-                goto goaway;
-            else
-                _perror(INFO, "No GPS data present.");
+        if ((st.st_mode & S_IFMT) == S_IFDIR) {
+            /* argv is a dir */
+            if (recursive)
+                process_dir(argv[i]);
+            else 
+                _perror(INFO,
+                        "Not processing %s because -R was not specified.",
+                        argv[i]);
         } else {
-            randomize(&gps);
-            randomize_ref(&gps);
-            randomize_datetime(&gps);
+            /* argv is a file */
+            process_file(argv[i]);
         }
-
-        if (!write_image(argv[i], exif_data))
-                _perror(ERROR, "Couldn't write new image file");
-
-#ifdef DEBUG
-        exif_data_dump(exif_data);
-#endif
-goaway:
-        /* to the next one or bail out */
-        exif_data_unref(exif_data);
     }
 
     return 0;

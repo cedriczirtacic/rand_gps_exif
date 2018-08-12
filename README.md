@@ -2,6 +2,7 @@
 Randomize GPS EXIF data of JPEG images.
 
 ## Build:
+`build.sh` will take care of that:
 ```bash
 $ ./build.sh
 -- The C compiler identification is AppleClang 9.1.0.9020039
@@ -74,6 +75,8 @@ $ ./rand_gps_exif -d dickbutt.jpg && exiftool -GPS* dickbutt.jpg
 GPS Version ID                  : 2.3.0.0
 ```
 
+Use `-R` flag to recursively scan a directory and change EXIF data.
+
 More info: [GPS tag information](https://sno.phy.queensu.ca/~phil/exiftool/TagNames/GPS.html)
 
 ## TODO:
@@ -82,5 +85,5 @@ More info: [GPS tag information](https://sno.phy.queensu.ca/~phil/exiftool/TagNa
   * GPSTimeStamp ✅
   * GPSAltitude
   * GPSAltitudeRef
-- [ ] Work recursively with directories
+- [x] Work recursively with directories
 - [ ] **Moar testin'!**
