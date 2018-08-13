@@ -4,10 +4,10 @@
 #include <string.h>
 #include <stdbool.h>
 #include <time.h>
-#include <fcntl.h>
 #include <getopt.h>
 
 /* file/dir processing */
+#include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -28,6 +28,7 @@ struct image_gps_exif {
     int8_t n_entries;
 };
 
+/* lazy representation of rationale64u used by GPS EXIF tags */
 typedef struct rationale64u {
     uint32_t data[6];
 } r64_t;
@@ -42,6 +43,7 @@ bool recursive = false;
 bool jpeg_create_new = false;
 bool delete_gps_data = false;
 bool identify_gps_data = false;
+bool test_file_magic = false;
 
 /* Latitude references */
 #define LATITUDE_REF_N "N"
@@ -50,11 +52,17 @@ bool identify_gps_data = false;
 #define LONGITUDE_REF_E "E"
 #define LONGITUDE_REF_W "W"
 
-/* exif magic */
-//const unsigned char exif_magic[4] = { 0xFF, 0xD8, 0xFF, 0xE1 };
-//const uint32_t exif_magic_s = sizeof(exif_magic);
-
-//#define DEBUG
+/* magics
+ * this is used to identify files by file magic.
+ * taken from file(1)
+ * https://opensource.apple.com/source/cctools/cctools-410.1/file/magdir/linux
+ */
+static const char magics[4][4] = {
+    { 0xFF, 0xD8, 0xFF, 0xE0 }, // JPEG
+    { 0xFF, 0xD8, 0xFF, 0xE1 }, // EXIF
+    {  'M',  'M', 0x00, 0x2A }, // TIFF
+    { 0x00, 0x00, 0x00, 0x00 }
+};
 
 /* little -> big endian */
 uint32_t __bswap_32( uint32_t val )
@@ -106,6 +114,32 @@ void dump_hex(const char *name, unsigned char *data, size_t s)
         data++;
     }
     printf("\n");
+}
+
+static bool is_valid(const char *path)
+{
+    int path_fd = open(path, O_RDONLY);
+    if (path_fd == -1) {
+        perror("open");
+        _perror (ERROR, "open(2) returned -1 during file magic check!");
+        return false;
+    }
+
+    uint8_t data[4], *magic;
+    read(path_fd, &data, 4);
+    close(path_fd);
+
+    magic = &magics;
+    while (*(uint32_t*)magic != 0) {
+        if (*(uint32_t *)data == *(uint32_t *)magic)
+            return true;
+        magic += 4;
+    }
+
+    if (verbose)
+        _perror(INFO, "File magic not valid.");
+    return false;
+
 }
 
 /* randomize timestamp and datetime */
@@ -264,6 +298,11 @@ void process_file(char *path)
     if (verbose)
         printf("=== %s ===\n", path);
 
+    /* check file magic? */
+    if (test_file_magic)
+        if (!is_valid(path))
+            return;
+
     ExifData *exif_data;
     if (!(exif_data = exif_data_new_from_file(path))) {
         if (verbose)
@@ -388,6 +427,7 @@ void usage(const char *p)
             "\t-d\tDelete GPS data\n" \
             "\t-i\tIdentify GPS data\n" \
             "\t-R\tRecursive if dir specified (default: false)\n" \
+            "\t-f\tOnly test files identified by file magic\n" \
             "\n",
             p);
     exit(1);
@@ -399,7 +439,7 @@ int main(int argc, char *argv[])
         usage(argv[0]);
 
     int ch = 0;
-    while ((ch = getopt(argc, argv, "vhndiR")) != -1) {
+    while ((ch = getopt(argc, argv, "vhndiRf")) != -1) {
         switch (ch) {
             case 'v':
                 verbose = true;
@@ -415,6 +455,9 @@ int main(int argc, char *argv[])
                 break;
             case 'R':
                 recursive = true;
+                break;
+            case 'f':
+                test_file_magic = true;
                 break;
             case 'h':
             default:

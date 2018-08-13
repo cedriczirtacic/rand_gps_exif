@@ -76,6 +76,7 @@ GPS Version ID                  : 2.3.0.0
 ```
 
 Use `-R` flag to recursively scan a directory and change EXIF data.
+`-f` flags will try to identify file type by file magic.
 
 More info: [GPS tag information](https://sno.phy.queensu.ca/~phil/exiftool/TagNames/GPS.html)
 
